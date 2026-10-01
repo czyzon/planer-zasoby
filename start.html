@@ -1,1 +1,132 @@
 
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Adres tej strony (z kluczem) nie może wyciec do innych stron w nagłówku „Referer". -->
+<meta name="referrer" content="no-referrer">
+<title>Planer</title>
+<!-- To jest powód istnienia tej strony: iPhone bierze ikonkę skrótu WYŁĄCZNIE z tego wpisu,
+     a na stronie Google (script.google.com) nie wolno nam go dodać (dokumentacja §187). -->
+<link rel="apple-touch-icon" href="planer-ikona-180.png">
+<meta name="apple-mobile-web-app-title" content="Planer">
+<link rel="icon" type="image/png" href="planer-favicon-64.png">
+<style>
+  :root{ --bg:#f4f6fa; --karta:#ffffff; --tekst:#1f2937; --szary:#5b6472; --granat:#1e3a63; --uwaga:#b7791f; }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0f1621; --karta:#18212f; --tekst:#e5e9f0; --szary:#9aa4b2; --granat:#5b8fc7; --uwaga:#e0a941; }
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--tekst);
+        font:16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main{ max-width:460px; margin:0 auto; padding:28px 16px 40px; }
+  .karta{ background:var(--karta); border-radius:16px; padding:22px 18px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .glowa{ display:flex; align-items:center; gap:14px; margin-bottom:14px; }
+  .glowa img{ width:56px; height:56px; border-radius:13px; }
+  h1{ font-size:21px; margin:0; }
+  ol{ padding-left:22px; margin:12px 0 16px; }
+  li{ margin:8px 0; }
+  .szary{ color:var(--szary); font-size:14px; }
+  .uwaga{ color:var(--uwaga); font-size:14px; font-weight:600; }
+  .przycisk{ display:block; width:100%; margin-top:18px; padding:13px; border:0; border-radius:10px;
+             background:var(--granat); color:#fff; font-size:16px; font-weight:600; text-align:center; text-decoration:none; }
+  [hidden]{ display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <!-- Ekran 1: instrukcja tworzenia ikonki (tylko gdy przyszliśmy z Planera, znacznik „nowa=1"). -->
+  <div class="karta" id="instrukcja" hidden>
+    <div class="glowa">
+      <img src="planer-ikona-180.png" alt="">
+      <h1>Ikonka Planera</h1>
+    </div>
+    <p>Dodaj tę stronę do ekranu początkowego — od tej chwili ikonka będzie otwierać Planer bez wpisywania hasła.</p>
+    <ol>
+      <li>Stuknij <b>Udostępnij</b> — kwadrat ze strzałką w górę (iPhone: na dole ekranu, iPad: u góry).</li>
+      <li>Wybierz <b>Do ekranu początkowego</b> (po niemiecku: <b>Zum Home-Bildschirm</b>). Jeśli go nie widać, przewiń listę w dół.</li>
+      <li>Stuknij <b>Dodaj</b> (<b>Hinzufügen</b>).</li>
+    </ol>
+    <p class="szary">Jeśli masz już starą ikonkę lub zakładkę Planera — usuń ją i używaj tej nowej.</p>
+    <p class="uwaga">Nie wysyłaj nikomu adresu tej strony — działa jak Twój klucz do Planera.</p>
+    <a class="przycisk" id="wroc" href="#">Wróć do Planera</a>
+  </div>
+
+  <!-- Ekran 2: chwila przejścia do Planera (normalne uruchomienie z ikonki). -->
+  <p class="szary" id="przejscie" hidden>Otwieram Planer…</p>
+
+  <!-- Ekran 3: brak adresu Planera w tym pliku — błąd konfiguracji, widoczny tylko dla koordynatora. -->
+  <div class="karta" id="blad" hidden>
+    <h1>Planer — błąd ustawień</h1>
+    <p class="szary">W pliku start.html nie wpisano adresu Planera (stała PLANER_ADRES).</p>
+  </div>
+
+  <noscript><p>Ta strona wymaga włączonej obsługi JavaScript.</p></noscript>
+</main>
+
+<script>
+  // start.html — strona startowa Planera dla iPhone'a/iPada (repozytorium czyzon/planer-zasoby, GitHub Pages).
+  // Nie zawiera żadnych danych zboru i nie łączy się z serwerem Planera — tylko przekierowuje.
+  //   start.html#u=KLUCZ&nowa=1 → przyszliśmy z Planera: pokaż instrukcję tworzenia ikonki
+  //   start.html#u=KLUCZ        → uruchomienie z ikonki: od razu przejdź do Planera z kluczem
+  //   start.html                → bez klucza: zwykły Planer (logowanie hasłem)
+  // Klucz jedzie w części adresu po „#" — przeglądarka nie wysyła jej do serwera GitHuba.
+
+  // Adres Planera (Web-App-URL z „Bereitstellungen verwalten", kończy się na /exec).
+  // Przekierowujemy WYŁĄCZNIE tutaj — nigdy pod adres podany w linku.
+  var PLANER_ADRES = 'WKLEJ_TUTAJ_ADRES_PLANERA';
+
+  // czytajParametry — zbiera parametry z części po „#" oraz (zapasowo) z części po „?".
+  function czytajParametry() {
+    var wynik = {};
+    var czesci = [location.search.replace(/^\?/, ''), location.hash.replace(/^#/, '')];
+    czesci.forEach(function (tekst) {
+      tekst.split('&').forEach(function (para) {
+        if (!para) return;
+        var i = para.indexOf('=');
+        var nazwa = decodeURIComponent(i < 0 ? para : para.slice(0, i));
+        var wartosc = decodeURIComponent(i < 0 ? '' : para.slice(i + 1));
+        wynik[nazwa] = wartosc;
+      });
+    });
+    return wynik;
+  }
+
+  // poprawnyKlucz — klucz urządzenia ma dokładnie 64 znaki 0-9a-f; inaczej traktujemy jak brak klucza.
+  function poprawnyKlucz(k) {
+    k = String(k || '').trim().toLowerCase();
+    return /^[0-9a-f]{64}$/.test(k) ? k : '';
+  }
+
+  // adresPlanera — adres Planera z kluczem (?u=…) albo bez niego.
+  function adresPlanera(k) {
+    return PLANER_ADRES + (k ? '?u=' + encodeURIComponent(k) : '');
+  }
+
+  // pokaz — odsłania jeden z ekranów strony.
+  function pokaz(id) {
+    document.getElementById(id).hidden = false;
+  }
+
+  // start — decyduje, co zrobić z wejściem na stronę (opis na górze skryptu).
+  function start() {
+    if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(PLANER_ADRES)) { pokaz('blad'); return; }
+    var p = czytajParametry();
+    var k = poprawnyKlucz(p.u);
+
+    if (k && p.nowa === '1') {
+      // Usuwamy znacznik „nowa" z adresu ZANIM brat zrobi skrót — skrót zapamięta adres z samym kluczem.
+      history.replaceState(null, '', location.pathname + '#u=' + k);
+      document.getElementById('wroc').href = adresPlanera(k);
+      pokaz('instrukcja');
+      return;
+    }
+    pokaz('przejscie');
+    location.replace(adresPlanera(k));
+  }
+
+  start();
+</script>
+</body>
+</html>
