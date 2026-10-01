@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="pl">
 <head>
@@ -56,10 +55,10 @@
   <!-- Ekran 2: chwila przejścia do Planera (normalne uruchomienie z ikonki). -->
   <p class="szary" id="przejscie" hidden>Otwieram Planer…</p>
 
-  <!-- Ekran 3: brak adresu Planera w tym pliku — błąd konfiguracji, widoczny tylko dla koordynatora. -->
+  <!-- Ekran 3: wejście bez klucza albo z nieprawidłowym linkiem — przekierować nie ma dokąd. -->
   <div class="karta" id="blad" hidden>
-    <h1>Planer — błąd ustawień</h1>
-    <p class="szary">W pliku start.html nie wpisano adresu Planera (stała PLANER_ADRES).</p>
+    <h1>Planer</h1>
+    <p>Ten link nie otwiera Planera. Otwórz Planer swoim zwykłym linkiem albo ikonką utworzoną z Planera.</p>
   </div>
 
   <noscript><p>Ta strona wymaga włączonej obsługi JavaScript.</p></noscript>
@@ -67,15 +66,15 @@
 
 <script>
   // start.html — strona startowa Planera dla iPhone'a/iPada (repozytorium czyzon/planer-zasoby, GitHub Pages).
-  // Nie zawiera żadnych danych zboru i nie łączy się z serwerem Planera — tylko przekierowuje.
-  //   start.html#u=KLUCZ&nowa=1 → przyszliśmy z Planera: pokaż instrukcję tworzenia ikonki
-  //   start.html#u=KLUCZ        → uruchomienie z ikonki: od razu przejdź do Planera z kluczem
-  //   start.html                → bez klucza: zwykły Planer (logowanie hasłem)
-  // Klucz jedzie w części adresu po „#" — przeglądarka nie wysyła jej do serwera GitHuba.
-
-  // Adres Planera (Web-App-URL z „Bereitstellungen verwalten", kończy się na /exec).
-  // Przekierowujemy WYŁĄCZNIE tutaj — nigdy pod adres podany w linku.
-  var PLANER_ADRES = '900e6b785b538fa1cc20ebfa9cf62aefc1adaff864a60840d1be625fa20e24fa';
+  // Nie zawiera żadnych danych zboru, nie zawiera adresu Planera i nie łączy się z serwerem — tylko przekierowuje.
+  //   start.html#u=KLUCZ&a=ADRES&nowa=1 → przyszliśmy z Planera: pokaż instrukcję tworzenia ikonki
+  //   start.html#u=KLUCZ&a=ADRES        → uruchomienie z ikonki: od razu przejdź do Planera z kluczem
+  //   wszystko inne                     → komunikat „ten link nie otwiera Planera"
+  // Klucz i adres jadą w części po „#" — przeglądarka nie wysyła jej do serwera GitHuba.
+  // Repozytorium jest publiczne, więc adresu Planera tu NIE MA — jest tylko jego skrót SHA-256.
+  // Strona przekierowuje wyłącznie pod adres, którego skrót się zgadza (nikt nie użyje jej
+  // do przekierowania na obcą stronę). Skrót wypisuje runner zuUstawAdresPlanera w Apps Script.
+  var PLANER_SKROT = '900e6b785b538fa1cc20ebfa9cf62aefc1adaff864a60840d1be625fa20e24fa';
 
   // czytajParametry — zbiera parametry z części po „#" oraz (zapasowo) z części po „?".
   function czytajParametry() {
@@ -85,9 +84,10 @@
       tekst.split('&').forEach(function (para) {
         if (!para) return;
         var i = para.indexOf('=');
-        var nazwa = decodeURIComponent(i < 0 ? para : para.slice(0, i));
-        var wartosc = decodeURIComponent(i < 0 ? '' : para.slice(i + 1));
-        wynik[nazwa] = wartosc;
+        try {
+          var nazwa = decodeURIComponent(i < 0 ? para : para.slice(0, i));
+          wynik[nazwa] = decodeURIComponent(i < 0 ? '' : para.slice(i + 1));
+        } catch (e) {}
       });
     });
     return wynik;
@@ -99,9 +99,13 @@
     return /^[0-9a-f]{64}$/.test(k) ? k : '';
   }
 
-  // adresPlanera — adres Planera z kluczem (?u=…) albo bez niego.
-  function adresPlanera(k) {
-    return PLANER_ADRES + (k ? '?u=' + encodeURIComponent(k) : '');
+  // skrotSha256 — skrót SHA-256 tekstu jako 64 znaki hex (ten sam wynik co _zuHash w Apps Script).
+  function skrotSha256(tekst) {
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(tekst)).then(function (buf) {
+      return Array.prototype.map.call(new Uint8Array(buf), function (b) {
+        return ('0' + b.toString(16)).slice(-2);
+      }).join('');
+    });
   }
 
   // pokaz — odsłania jeden z ekranów strony.
@@ -111,19 +115,25 @@
 
   // start — decyduje, co zrobić z wejściem na stronę (opis na górze skryptu).
   function start() {
-    if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(PLANER_ADRES)) { pokaz('blad'); return; }
     var p = czytajParametry();
     var k = poprawnyKlucz(p.u);
-
-    if (k && p.nowa === '1') {
-      // Usuwamy znacznik „nowa" z adresu ZANIM brat zrobi skrót — skrót zapamięta adres z samym kluczem.
-      history.replaceState(null, '', location.pathname + '#u=' + k);
-      document.getElementById('wroc').href = adresPlanera(k);
-      pokaz('instrukcja');
-      return;
+    var adres = String(p.a || '');
+    if (!k || !/^https:\/\/script\.google\.com\/.+\/exec$/.test(adres) || !window.crypto || !crypto.subtle) {
+      pokaz('blad'); return;
     }
-    pokaz('przejscie');
-    location.replace(adresPlanera(k));
+    skrotSha256(adres).then(function (s) {
+      if (s !== PLANER_SKROT) { pokaz('blad'); return; }
+      var cel = adres + '?u=' + encodeURIComponent(k);
+      if (p.nowa === '1') {
+        // Usuwamy znacznik „nowa" z adresu ZANIM brat zrobi skrót — skrót zapamięta klucz i adres.
+        history.replaceState(null, '', location.pathname + '#u=' + k + '&a=' + encodeURIComponent(adres));
+        document.getElementById('wroc').href = cel;
+        pokaz('instrukcja');
+        return;
+      }
+      pokaz('przejscie');
+      location.replace(cel);
+    }, function () { pokaz('blad'); });
   }
 
   start();
